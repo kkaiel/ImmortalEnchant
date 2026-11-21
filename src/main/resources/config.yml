@@ -1,0 +1,123 @@
+# 불멸 커스텀 인챈트 설정
+# 모든 수치는 서버 테스트 후 이 파일에서 조정할 수 있습니다.
+
+initial-roll:
+  experience-levels: 1
+  required-blocks:
+    COAL_BLOCK: 1
+    IRON_BLOCK: 1
+    GOLD_BLOCK: 1
+    DIAMOND_BLOCK: 1
+    EMERALD_BLOCK: 1
+    LAPIS_BLOCK: 1
+    REDSTONE_BLOCK: 1
+    NETHERITE_BLOCK: 1
+    COPPER_BLOCK: 1
+
+upgrade:
+  max-attempts: 5
+  success-chances:
+    "0": 0.80
+    "1": 0.70
+    "2": 0.60
+    "3": 0.50
+    "4": 0.40
+  experience-levels: 10
+  AMETHYST_SHARD: 32
+
+roll:
+  positive-chance: 0.50
+  tiers: [WEAK, NORMAL, STRONG]
+  tier-chances: [0.333333, 0.333333, 0.333334]
+
+options:
+  attack-damage:
+    enabled: true
+    weak: 3.0
+    normal: 3.5
+    strong: 4.0
+    upgrade-increment: 0.5
+    fifth-success-bonus: 0.5
+  attack-speed:
+    enabled: true
+    weak: 0.05
+    normal: 0.08
+    strong: 0.12
+    upgrade-increment: 0.02
+  mining-speed:
+    enabled: true
+    weak: 1.0
+    normal: 1.5
+    strong: 2.0
+    upgrade-increment: 0.5
+  projectile-damage:
+    enabled: true
+    weak: 0.10
+    normal: 0.15
+    strong: 0.20
+    upgrade-increment: 0.05
+  experience-gain:
+    enabled: true
+    weak: 0.50
+    normal: 0.75
+    strong: 1.00
+    upgrade-increment: 0.25
+  max-health:
+    enabled: true
+    weak: 1.0
+    normal: 2.0
+    strong: 3.0
+    upgrade-increment: 1.0
+  armor:
+    enabled: true
+    weak: 1.0
+    normal: 2.0
+    strong: 3.0
+    upgrade-increment: 1.0
+  armor-toughness:
+    enabled: true
+    weak: 1.0
+    normal: 2.0
+    strong: 3.0
+    upgrade-increment: 1.0
+  negative-attack-damage:
+    enabled: true
+    weak: -1.0
+    normal: -2.0
+    strong: -3.0
+    upgrade-increment: -0.5
+  negative-attack-speed:
+    enabled: true
+    weak: -0.05
+    normal: -0.10
+    strong: -0.15
+    upgrade-increment: -0.02
+  negative-max-health:
+    enabled: true
+    weak: -1.0
+    normal: -2.0
+    strong: -3.0
+    upgrade-increment: -1.0
+  negative-projectile-damage:
+    enabled: true
+    weak: -0.10
+    normal: -0.15
+    strong: -0.20
+    upgrade-increment: -0.05
+  glow:
+    enabled: true
+    duration-seconds: 2
+    upgrade-increment: 0
+
+messages:
+  prefix: '&8[&b불멸&8] &r'
+  no-permission: '&c권한이 없습니다.'
+  player-only: '&c플레이어만 사용할 수 있습니다.'
+  no-item: '&c손에 불멸 장비를 들어주세요.'
+  not-eligible: '&c이 장비는 불멸 장비로 등록되어 있지 않습니다.'
+  already-rolled: '&e이미 옵션이 생성된 장비입니다.'
+  roll-success: '&a장비의 잠재력이 개방되었습니다!'
+  not-enough-cost: '&c필요한 경험치 또는 재료가 부족합니다.'
+  upgrade-success: '&a강화에 성공했습니다!'
+  upgrade-fail: '&c강화에 실패했습니다. 옵션 수치는 유지됩니다.'
+  max-attempts: '&c더 이상 강화할 수 없습니다. 최대 강화 단계입니다.'
