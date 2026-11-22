@@ -82,6 +82,8 @@ public final class ImmortalEnchantPlugin extends JavaPlugin implements Listener,
     @Override public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
         if (args.length == 0) {
             sender.sendMessage(color("&b/immortal give <sword|axe|pickaxe|crossbow|helmet|chestplate|leggings|boots>"));
+            sender.sendMessage(color("&b/immortal perfect <type> <option=value> x4 &7- OP 전용 최종 장비 지급"));
+            sender.sendMessage(color("&7옵션 ID: attack-damage, attack-speed, mining-speed, projectile-damage, experience-gain, max-health, armor, armor-toughness"));
             sender.sendMessage(color("&b/immortal enchant &7- 최초 옵션 생성 GUI"));
             sender.sendMessage(color("&b/immortal anvil &7- 강화 GUI"));
             sender.sendMessage(color("&b/immortal stats &7- 현재 적용된 능력치 확인"));
@@ -118,9 +120,13 @@ public final class ImmortalEnchantPlugin extends JavaPlugin implements Listener,
                     player.sendMessage(color("&c사용법: /immortal give <sword|axe|pickaxe|crossbow|helmet|chestplate|leggings|boots>"));
                     return true;
                 }
-                Map<Integer, ItemStack> leftovers = player.getInventory().addItem(createItem(args[1].toLowerCase(Locale.ROOT)));
-                leftovers.values().forEach(item -> player.getWorld().dropItemNaturally(player.getLocation(), item));
-                player.sendMessage(color("&a" + NAMES.get(args[1].toLowerCase(Locale.ROOT)) + "&a 지급 완료. 테스트용 장비입니다."));
+                giveItem(player, createItem(args[1].toLowerCase(Locale.ROOT)));
+                player.sendMessage(color("&a" + NAMES.get(args[1].toLowerCase(Locale.ROOT)) + "&a 지급 완료. 옵션이 없는 기본 장비입니다."));
+            }
+            case "perfect" -> {
+                if (!player.hasPermission("immortalenchant.admin")) { msg(player, "no-permission"); return true; }
+                if (args.length == 1 || (args.length == 2 && args[1].equalsIgnoreCase("help"))) showPerfectHelp(player);
+                else givePerfectItem(player, args);
             }
             case "enchant" -> openRollMenu(player);
             case "anvil", "upgrade" -> openUpgradeMenu(player);
@@ -128,6 +134,234 @@ public final class ImmortalEnchantPlugin extends JavaPlugin implements Listener,
             default -> player.sendMessage(color("&c알 수 없는 명령어입니다."));
         }
         return true;
+    }
+
+    private void giveItem(Player player, ItemStack item) {
+        Map<Integer, ItemStack> leftovers = player.getInventory().addItem(item);
+        leftovers.values().forEach(leftover -> player.getWorld().dropItemNaturally(player.getLocation(), leftover));
+    }
+
+    // OP 전용: 옵션 4개를 직접 지정해 최종 장비를 지급합니다.
+    // 동일 옵션 ID의 합산 수치는 중복 줄의 강함 기본값과 전체 강화 시도를 고려한 이론상 최대치를 넘을 수 없습니다.
+    private void givePerfectItem(Player player, String[] args) {
+        if (args.length != 6 || !NAMES.containsKey(args[1].toLowerCase(Locale.ROOT))) {
+            player.sendMessage(color("&c사용법: /immortal perfect <type> <positive-1=value> <positive-2=value> <negative=value> <fourth=value>"));
+            player.sendMessage(color("&7예시: /immortal perfect sword attack-damage=7 attack-speed=0.22 negative-max-health=-8 attack-damage=4"));
+            player.sendMessage(color("&7옵션 구성: 긍정 2개 + 부정 1개 + 네 번째 긍정/부정 1개"));
+            return;
+        }
+
+        String type = args[1].toLowerCase(Locale.ROOT);
+        List<String> fixedPositive = fixedPositiveOptions(type);
+        List<String> positivePool = positivePool(type);
+        List<String> negativePool = negativePool(type);
+        if (fixedPositive.size() != 2 || negativePool.isEmpty()) {
+            player.sendMessage(color("&c현재 설정에서 이 장비의 필수 긍정/부정 옵션 구성을 만들 수 없습니다."));
+            return;
+        }
+
+        List<Option> selected = new ArrayList<>();
+        for (int slot = 0; slot < 4; slot++) {
+            String token = args[slot + 2];
+            String[] pair = token.split("=", 2);
+            if (pair.length != 2) {
+                player.sendMessage(color("&c옵션 입력 형식이 잘못되었습니다: &f" + token + " &7(option=value)"));
+                return;
+            }
+
+            String optionId = pair[0].toLowerCase(Locale.ROOT);
+            boolean negativeNumericOption = optionId.startsWith("negative-");
+            boolean allowedForSlot = switch (slot) {
+                case 0, 1 -> optionId.equals(fixedPositive.get(slot));
+                case 2 -> negativePool.contains(optionId);
+                case 3 -> positivePool.contains(optionId) || negativePool.contains(optionId);
+                default -> false;
+            };
+            if (!allowedForSlot || !getConfig().getBoolean("options." + optionId + ".enabled", true)) {
+                String expected = switch (slot) {
+                    case 0, 1 -> "필수 긍정 옵션: " + fixedPositive.get(slot);
+                    case 2 -> "부정 옵션 중 하나: " + String.join(", ", negativePool);
+                    case 3 -> "긍정 또는 부정 옵션 중 하나";
+                    default -> "";
+                };
+                player.sendMessage(color("&c옵션 구성이 잘못되었습니다: &f" + token));
+                player.sendMessage(color("&7" + expected));
+                return;
+            }
+
+            final double value;
+            try {
+                value = Double.parseDouble(pair[1]);
+                if (!Double.isFinite(value) || value == 0.0 || (negativeNumericOption && value >= 0.0) || (!negativeNumericOption && value <= 0.0)) {
+                    throw new NumberFormatException();
+                }
+            } catch (NumberFormatException ex) {
+                player.sendMessage(color("&c옵션 수치가 잘못되었습니다: &f" + token
+                        + (negativeNumericOption ? " &7(부정 수치 옵션은 음수여야 합니다.)" : " &7(긍정 옵션과 발광 지속시간은 양수여야 합니다.)")));
+                return;
+            }
+
+            double bound = getPerfectOptionMaximum(type, optionId);
+            boolean overLimit = optionId.equals("glow")
+                    ? Math.abs(value - bound) > 1.0E-9
+                    : negativeNumericOption ? value < bound - 1.0E-9 : value > bound + 1.0E-9;
+            if (!Double.isFinite(bound) || bound == 0.0 || overLimit) {
+                player.sendMessage(color("&c옵션 수치가 잘못되었습니다: &f" + optionId
+                        + " &7입력=" + format(value, optionId)
+                        + " / 허용 최대=" + format(bound, optionId)));
+                return;
+            }
+
+            selected.add(new Option(optionId, Tier.STRONG, value));
+        }
+
+        // 중복 옵션은 일반 추첨에서도 발생할 수 있습니다. 강화 5회가 한 옵션에 집중되는
+        // 최악의 경우를 기준으로 동일 ID의 합산 수치도 검증합니다.
+        Map<String, Double> totals = new HashMap<>();
+        Map<String, Integer> counts = new HashMap<>();
+        for (Option option : selected) {
+            if (option.id().equals("glow")) continue;
+            totals.merge(option.id(), option.value(), Double::sum);
+            counts.merge(option.id(), 1, Integer::sum);
+        }
+        for (String optionId : totals.keySet()) {
+            double total = totals.get(optionId);
+            double aggregateLimit = getPerfectOptionAggregateLimit(type, optionId, counts.get(optionId));
+            boolean negative = optionId.startsWith("negative-");
+            boolean invalid = !Double.isFinite(aggregateLimit)
+                    || (negative ? total < aggregateLimit - 1.0E-9 : total > aggregateLimit + 1.0E-9);
+            if (invalid) {
+                player.sendMessage(color("&c중복 옵션의 합산 수치가 최대 한도를 초과했습니다: &f" + optionId));
+                player.sendMessage(color("&7입력 합계=" + format(total, optionId) + " / 허용 합계=" + format(aggregateLimit, optionId)));
+                return;
+            }
+        }
+
+        ItemStack item = createItem(type);
+        storeOptions(item, selected);
+        ItemMeta meta = item.getItemMeta();
+        meta.getPersistentDataContainer().set(rolledKey, PersistentDataType.BYTE, (byte) 1);
+        int maxAttempts = Math.max(0, getConfig().getInt("upgrade.max-attempts", 5));
+        meta.getPersistentDataContainer().set(stageKey, PersistentDataType.INTEGER, maxAttempts);
+        updateLore(item, meta, selected);
+        applyOptionAttributes(item, selected);
+        giveItem(player, item);
+        player.sendMessage(color("&a" + NAMES.get(type) + " 최종 장비 지급 완료!"));
+        player.sendMessage(color("&7옵션 구성: &a긍정 2개 &c부정 1개 &f네 번째 선택 옵션 1개"));
+        player.sendMessage(color("&7강화 단계: &e+" + maxAttempts + " &8(추가 강화 불가)"));
+        getLogger().info("Perfect item issued to " + player.getName() + ": type=" + type
+                + ", options=" + selected.stream().map(o -> o.id() + "=" + o.value()).toList());
+    }
+
+    private List<String> fixedPositiveOptions(String type) {
+        return switch (type) {
+            case "sword" -> List.of("attack-damage", "attack-speed");
+            case "axe" -> List.of("attack-damage", "mining-speed");
+            case "crossbow" -> List.of("projectile-damage", "experience-gain");
+            case "pickaxe" -> List.of("mining-speed", "attack-speed");
+            default -> List.of("max-health", "armor");
+        };
+    }
+
+    // 옵션 한 줄마다 강함 등급에서 최대 강화 횟수만큼 모두 성공했을 때의 이론상 경계값.
+    // 긍정 옵션은 최대 양수, 부정 수치 옵션은 최대 페널티(음수)를 반환합니다.
+    private double getPerfectOptionMaximum(String type, String optionId) {
+        if (optionId.equals("glow")) {
+            return getConfig().getDouble("options.glow.duration-seconds", 2.0);
+        }
+        String basePath = type.equals("pickaxe") && optionId.equals("mining-speed")
+                ? "options.pickaxe-mining-speed" : "options." + optionId;
+        double maximum = getConfig().getDouble(basePath + ".strong", Double.NaN);
+        if (!Double.isFinite(maximum)) return Double.NaN;
+        String incrementPath = type.equals("pickaxe") && optionId.equals("mining-speed")
+                ? "options.pickaxe-mining-speed.upgrade-increment"
+                : "options." + optionId + ".upgrade-increment";
+        double increment = getConfig().getDouble(incrementPath,
+                getConfig().getDouble("options." + optionId + ".upgrade-increment", 0.0));
+        int attempts = Math.max(0, getConfig().getInt("upgrade.max-attempts", 5));
+        for (int attempt = 0; attempt < attempts; attempt++) {
+            maximum += increment;
+            if (optionId.equals("attack-damage") && attempt == 4)
+                maximum += getConfig().getDouble("options.attack-damage.fifth-success-bonus", 0.5);
+        }
+        return maximum;
+    }
+
+    private double getPerfectOptionAggregateLimit(String type, String optionId, int occurrences) {
+        String basePath = type.equals("pickaxe") && optionId.equals("mining-speed")
+                ? "options.pickaxe-mining-speed" : "options." + optionId;
+        double base = getConfig().getDouble(basePath + ".strong", Double.NaN);
+        if (!Double.isFinite(base)) return Double.NaN;
+        String incrementPath = type.equals("pickaxe") && optionId.equals("mining-speed")
+                ? "options.pickaxe-mining-speed.upgrade-increment"
+                : "options." + optionId + ".upgrade-increment";
+        double increment = getConfig().getDouble(incrementPath,
+                getConfig().getDouble("options." + optionId + ".upgrade-increment", 0.0));
+        int attempts = Math.max(0, getConfig().getInt("upgrade.max-attempts", 5));
+        double limit = base * occurrences + increment * attempts;
+        if (optionId.equals("attack-damage") && attempts > 4)
+            limit += getConfig().getDouble("options.attack-damage.fifth-success-bonus", 0.5);
+        return limit;
+    }
+
+    private void showPerfectHelp(Player player) {
+        player.sendMessage(color("&8&m---------------- &b불멸 Perfect 명령어 도움말 &8&m----------------"));
+        player.sendMessage(color("&e/immortal perfect <type> <옵션=value> <옵션=value> <부정=value> <4번째=value>"));
+        player.sendMessage(color("&7순서: &a고정 긍정 1 &7+ &a고정 긍정 2 &7+ &c필수 부정 1 &7+ &f선택 옵션 1"));
+        player.sendMessage(color("&7일반 추첨의 4번째 옵션은 긍정 50% / 부정 50%이며, 이 명령어에서는 OP가 직접 선택합니다."));
+        player.sendMessage(color("&7옵션 등급은 약함/보통/강함이 각각 약 1/3 확률로 추첨됩니다."));
+        player.sendMessage(color("&7장비 type: sword, axe, pickaxe, crossbow, helmet, chestplate, leggings, boots"));
+        player.sendMessage(color("&7수치는 config.yml의 강함 등급과 강화 " + getConfig().getInt("upgrade.max-attempts", 5) + "회 기준 최대치 이내여야 합니다."));
+        player.sendMessage(color("&e장비별 옵션 ID 및 설명:"));
+        showPerfectTypeHelp(player, "sword", "검", List.of("attack-damage", "attack-speed"));
+        showPerfectTypeHelp(player, "axe", "도끼", List.of("attack-damage", "mining-speed"));
+        showPerfectTypeHelp(player, "pickaxe", "곡괭이", List.of("mining-speed", "attack-speed"));
+        showPerfectTypeHelp(player, "crossbow", "석궁", List.of("projectile-damage", "experience-gain"));
+        showPerfectTypeHelp(player, "helmet", "방어구 전체", List.of("max-health", "armor"));
+        player.sendMessage(color("&7발광 저주는 해당 장비를 주 손에 들고 있을 때 발동하며, armor-toughness는 방어구의 네 번째 긍정 후보입니다."));
+        player.sendMessage(color("&7중복 옵션은 허용되지만 같은 ID의 합산 수치는 강화 횟수 기준 총 한도를 넘을 수 없습니다."));
+        player.sendMessage(color("&e예시: &f/immortal perfect sword attack-damage=7 attack-speed=0.22 negative-max-health=-8 attack-damage=4"));
+        player.sendMessage(color("&7자세한 수치/설명은 /immortal perfect help 에서 확인할 수 있습니다."));
+        player.sendMessage(color("&8&m--------------------------------------------------------------"));
+    }
+
+    private void showPerfectTypeHelp(Player player, String type, String label, List<String> fixed) {
+        List<String> positives = new ArrayList<>(positivePool(type));
+        List<String> negatives = negativePool(type);
+        player.sendMessage(color("&b" + label + " (&f" + type + "&b): &a1=" + fixed.get(0) + " / 2=" + fixed.get(1)));
+        Set<String> all = new LinkedHashSet<>();
+        all.addAll(fixed);
+        all.addAll(positives);
+        all.addAll(negatives);
+        if (isArmorType(type)) all.add("armor-toughness");
+        for (String id : all) {
+            if (!getConfig().getBoolean("options." + id + ".enabled", true)) continue;
+            double maximum = getPerfectOptionMaximum(type, id);
+            String limit = format(maximum, id);
+            player.sendMessage(color("&7  " + id + " &f- " + optionDescription(id) + " &8(한 줄 최대 " + limit + ")"));
+        }
+        player.sendMessage(color("&7  3번째 부정 후보: &c" + String.join(", ", negatives)));
+        player.sendMessage(color("&7  4번째 후보: &a" + String.join(", ", positives) + " &7또는 &c" + String.join(", ", negatives)));
+        if (isArmorType(type)) player.sendMessage(color("&7  방어구 4번째 긍정 옵션에 armor-toughness(방어 강도) 포함"));
+    }
+
+    private String optionDescription(String id) {
+        return switch (id) {
+            case "attack-damage" -> "근접 공격 피해 증가";
+            case "attack-speed" -> "근접 공격 속도 증가";
+            case "mining-speed" -> "채굴 효율 증가";
+            case "projectile-damage" -> "석궁 투사체 피해 증가";
+            case "experience-gain" -> "획득 경험치 증가";
+            case "max-health" -> "최대 체력 증가";
+            case "armor" -> "방어력 증가";
+            case "armor-toughness" -> "방어 강도 증가";
+            case "negative-attack-damage" -> "근접 공격 피해 감소";
+            case "negative-attack-speed" -> "근접 공격 속도 감소";
+            case "negative-max-health" -> "최대 체력 감소";
+            case "negative-projectile-damage" -> "석궁 투사체 피해 감소";
+            case "glow" -> "손에 들고 있으면 발광 효과";
+            default -> id;
+        };
     }
 
     private void showStats(Player player) {
@@ -138,13 +372,13 @@ public final class ImmortalEnchantPlugin extends JavaPlugin implements Listener,
         double[] armorTotals = equippedImmortalArmorTotals(player);
         if (armorTotals != null) {
             double excessArmor = Math.max(0.0, armorTotals[0] - 30.0);
-            double bonusReduction = excessArmor * getConfig().getDouble("armor-mitigation.excess-per-point", 0.025);
+            double bonusReduction = calculateExcessArmorReduction(excessArmor);
             player.sendMessage(color("&b불멸 방어구 합산 방어력: &f" + String.format(Locale.US, "%.2f", armorTotals[0])));
             player.sendMessage(color("&b불멸 방어구 합산 방어 강도: &f" + String.format(Locale.US, "%.2f", armorTotals[1])));
             player.sendMessage(color("&7바닐라 방어력 상한: &f30.00"));
             player.sendMessage(color("&7초과 방어력: &f" + String.format(Locale.US, "%.2f", excessArmor)));
             player.sendMessage(color("&a초과 방어력 추가 피해 감소: &f" + String.format(Locale.US, "%.2f%%", bonusReduction * 100.0)));
-            player.sendMessage(color("&8초과 방어력 1당 피해 " + String.format(Locale.US, "%.2f%%", getConfig().getDouble("armor-mitigation.excess-per-point", 0.025) * 100.0) + " 추가 감소"));
+            player.sendMessage(color("&8초과 방어력 1당 피해 " + String.format(Locale.US, "%.2f%%", getConfig().getDouble("armor-mitigation.excess-per-point", 0.02) * 100.0) + " 추가 감소"));
         } else {
             player.sendMessage(color("&7불멸 방어구 4부위 착용 시 방어력 보정 정보가 표시됩니다."));
         }
@@ -685,9 +919,18 @@ public final class ImmortalEnchantPlugin extends JavaPlugin implements Listener,
     }
     private String tierName(Tier tier) { return switch (tier) { case WEAK -> "약함"; case NORMAL -> "보통"; case STRONG -> "강함"; }; }
     private String format(double value, String id) {
-        if (id.contains("speed") || id.contains("projectile") || id.contains("experience")) return String.format(Locale.US, "%.0f%%", value * 100);
-        if (id.equals("glow")) return "손에 들면 2초 발광";
+        if (id.equals("attack-speed") || id.equals("negative-attack-speed")
+                || id.contains("projectile") || id.contains("experience"))
+            return String.format(Locale.US, "%.0f%%", value * 100);
+        if (id.equals("glow")) return "손에 들면 " + getConfig().getInt("options.glow.duration-seconds", 2) + "초 발광";
         return (value > 0 ? "+" : "") + String.format(Locale.US, "%.1f", value);
+    }
+
+    private double calculateExcessArmorReduction(double excessArmor) {
+        double perPoint = Math.max(0.0, getConfig().getDouble("armor-mitigation.excess-per-point", 0.02));
+        double configuredMaximum = getConfig().getDouble("armor-mitigation.max-reduction", 0.80);
+        double maximum = Math.max(0.0, Math.min(1.0, configuredMaximum));
+        return Math.min(maximum, Math.max(0.0, excessArmor) * perPoint);
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
@@ -713,7 +956,7 @@ public final class ImmortalEnchantPlugin extends JavaPlugin implements Listener,
         double targetToughness = Math.max(actualToughness, totals[1]);
         double rawDamage = event.getDamage();
         double excessArmor = Math.max(0.0, totals[0] - 30.0);
-        double excessArmorReduction = excessArmor * getConfig().getDouble("armor-mitigation.excess-per-point", 0.025);
+        double excessArmorReduction = calculateExcessArmorReduction(excessArmor);
         boolean armorMitigatesThisDamage = switch (event.getCause()) {
             case ENTITY_ATTACK, ENTITY_SWEEP_ATTACK, PROJECTILE, BLOCK_EXPLOSION, ENTITY_EXPLOSION -> true;
             default -> false;
@@ -727,7 +970,7 @@ public final class ImmortalEnchantPlugin extends JavaPlugin implements Listener,
         double finalEstimated = targetEstimated * Math.max(0.0, 1.0 - excessArmorReduction);
 
         if (applied) {
-            // 방어력 30 초과분은 config.yml의 armor-mitigation.excess-per-point 비율로 추가 감소시킵니다.
+            // 방어력 30 초과분은 config.yml의 비율로 추가 감소시키며 max-reduction 상한을 적용합니다.
             // 목표 방어력으로 계산한 최종 피해가 바닐라 방어력 계산 후 나오도록 원 피해량을 역산합니다.
             double low = 0.0;
             double high = rawDamage;

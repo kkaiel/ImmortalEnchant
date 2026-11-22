@@ -2,9 +2,11 @@
 # 모든 수치는 서버 테스트 후 이 파일에서 조정할 수 있습니다.
 
 # 초과 방어력 추가 피해 감소 설정
-# 초과 방어력 1당 0.025 = 2.5% 추가 피해 감소
+# 초과 방어력 1당 0.02 = 2% 추가 피해 감소
+# 초과 방어력에 의한 추가 피해 감소는 최대 0.80 = 80%로 제한됩니다.
 armor-mitigation:
-  excess-per-point: 0.025
+  excess-per-point: 0.02
+  max-reduction: 0.80
 
 initial-roll:
   experience-levels: 1
