@@ -1,5 +1,5 @@
 name: ImmortalEnchant
-version: 1.0.0
+version: 1.1.0
 main: kr.server.immortalenchant.ImmortalEnchantPlugin
 api-version: '26.3'
 author: ServerAdmin
@@ -7,7 +7,7 @@ description: 불멸 장비 전용 커스텀 옵션 및 강화 시스템
 commands:
   immortal:
     description: 불멸 장비 커스텀 인챈트 관리 명령어
-    usage: /immortal <give|enchant|anvil|reload>
+    usage: /immortal <give|enchant|anvil|stats|reload>
     aliases: [im]
 permissions:
   immortalenchant.admin:

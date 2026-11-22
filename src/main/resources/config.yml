@@ -23,7 +23,7 @@ upgrade:
     "3": 0.50
     "4": 0.40
   experience-levels: 10
-  AMETHYST_SHARD: 32
+  amethyst-shard: 32
 
 roll:
   positive-chance: 0.50
