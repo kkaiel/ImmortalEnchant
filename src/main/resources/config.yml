@@ -50,6 +50,13 @@ options:
     normal: 1.5
     strong: 2.0
     upgrade-increment: 0.5
+  # 곡괭이의 첫 번째 긍정 옵션 전용 수치입니다.
+  # 기본 채굴 효율 보정 +4.5와 합산해 강함이면 일반 돌 즉시 채굴(총 채굴 속도 45)을 목표로 합니다.
+  pickaxe-mining-speed:
+    weak: 10.0
+    normal: 20.0
+    strong: 31.5
+    upgrade-increment: 0.5
   projectile-damage:
     enabled: true
     weak: 0.10

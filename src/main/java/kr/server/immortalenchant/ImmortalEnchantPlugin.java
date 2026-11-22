@@ -8,9 +8,14 @@ import org.bukkit.enchantments.Enchantment;
 import org.bukkit.entity.*;
 import org.bukkit.event.*;
 import org.bukkit.event.entity.EntityDamageByEntityEvent;
+import org.bukkit.event.entity.EntityDamageEvent;
 import org.bukkit.event.entity.EntityShootBowEvent;
+import org.bukkit.event.enchantment.EnchantItemEvent;
+import org.bukkit.event.enchantment.PrepareItemEnchantEvent;
 import org.bukkit.event.inventory.*;
 import org.bukkit.event.player.PlayerItemHeldEvent;
+import org.bukkit.event.player.PlayerInteractEvent;
+import org.bukkit.event.block.Action;
 import org.bukkit.event.player.PlayerJoinEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.event.player.PlayerExpChangeEvent;
@@ -46,6 +51,9 @@ public final class ImmortalEnchantPlugin extends JavaPlugin implements Listener,
 
     @Override public void onEnable() {
         saveDefaultConfig();
+        // 기존 서버 config.yml에도 새 버전의 신규 설정 키만 보충하고 기존 사용자 설정은 덮어쓰지 않습니다.
+        getConfig().options().copyDefaults(true);
+        saveConfig();
         typeKey = new NamespacedKey(this, "immortal_type");
         rolledKey = new NamespacedKey(this, "options_rolled");
         stageKey = new NamespacedKey(this, "upgrade_stage");
@@ -109,8 +117,13 @@ public final class ImmortalEnchantPlugin extends JavaPlugin implements Listener,
         showAttribute(player, Attribute.ATTACK_DAMAGE, "공격력");
         showAttribute(player, Attribute.ATTACK_SPEED, "공격 속도");
         showAttribute(player, Attribute.MINING_EFFICIENCY, "채굴 효율 보정");
-        showAttribute(player, Attribute.ARMOR, "방어력");
+        showAttribute(player, Attribute.ARMOR, "방어력(바닐라 적용값)");
         showAttribute(player, Attribute.ARMOR_TOUGHNESS, "방어 강도");
+        double[] armorTotals = equippedImmortalArmorTotals(player);
+        if (armorTotals != null) {
+            player.sendMessage(color("&b불멸 방어구 합산 방어력: &f" + String.format(Locale.US, "%.2f", armorTotals[0])));
+            player.sendMessage(color("&b불멸 방어구 합산 방어 강도: &f" + String.format(Locale.US, "%.2f", armorTotals[1])));
+        }
         showAttribute(player, Attribute.KNOCKBACK_RESISTANCE, "넉백 저항");
         showAttribute(player, Attribute.MAX_HEALTH, "최대 체력");
         ItemStack hand = player.getInventory().getItemInMainHand();
@@ -162,6 +175,7 @@ public final class ImmortalEnchantPlugin extends JavaPlugin implements Listener,
 
     private void applyBaseStats(ItemStack item, String type) {
         ItemMeta meta = item.getItemMeta();
+        hideVanillaAttributeTooltip(meta);
         removeOwnedModifiers(meta);
         double damage = switch (type) { case "sword" -> 12; case "axe" -> 15; case "pickaxe" -> 9; default -> 0; };
         double speed = switch (type) { case "sword" -> 1.6; case "axe" -> 1.0; case "pickaxe" -> 1.2; default -> 0; };
@@ -177,8 +191,14 @@ public final class ImmortalEnchantPlugin extends JavaPlugin implements Listener,
             addModifier(meta, Attribute.ARMOR_TOUGHNESS, "base_toughness_" + type, toughness, AttributeModifier.Operation.ADD_NUMBER, slot);
             addModifier(meta, Attribute.KNOCKBACK_RESISTANCE, "base_knockback_" + type, knockback, AttributeModifier.Operation.ADD_NUMBER, slot);
         }
-        meta.getPersistentDataContainer().set(statsVersionKey, PersistentDataType.INTEGER, 2);
+        meta.getPersistentDataContainer().set(statsVersionKey, PersistentDataType.INTEGER, 3);
         item.setItemMeta(meta);
+    }
+
+    // 실제 속성 수치는 그대로 유지하고, 바닐라가 자동 생성하는 중복 속성 설명만 숨깁니다.
+    // 기본 공격력 9는 플레이어 기본 공격력 1 + 아이템 수정치 8로 계산되므로 수정치를 변경하면 안 됩니다.
+    private void hideVanillaAttributeTooltip(ItemMeta meta) {
+        meta.addItemFlags(ItemFlag.HIDE_ATTRIBUTES, ItemFlag.HIDE_UNBREAKABLE);
     }
 
     private void addModifier(ItemMeta meta, Attribute attribute, String key, double amount, AttributeModifier.Operation operation, EquipmentSlotGroup slot) {
@@ -249,6 +269,60 @@ public final class ImmortalEnchantPlugin extends JavaPlugin implements Listener,
         return item;
     }
 
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = false)
+    public void onStationInteract(PlayerInteractEvent event) {
+        if (event.getAction() != Action.RIGHT_CLICK_BLOCK || event.getClickedBlock() == null
+                || event.getHand() != EquipmentSlot.HAND) return;
+        Material block = event.getClickedBlock().getType();
+        boolean enchanting = block == Material.ENCHANTING_TABLE;
+        boolean anvil = block == Material.ANVIL || block == Material.CHIPPED_ANVIL || block == Material.DAMAGED_ANVIL;
+        if (!enchanting && !anvil) return;
+
+        // 바닐라 인챈트 테이블/모루 UI는 불멸 전용 GUI로 대체합니다.
+        event.setCancelled(true);
+        Player player = event.getPlayer();
+        ItemStack held = player.getInventory().getItemInMainHand();
+        if (!isImmortal(held)) {
+            player.sendMessage(color("&c불멸 장비를 손에 들어야 이 작업대를 사용할 수 있습니다."));
+            return;
+        }
+        ensureItemStats(held);
+        if (enchanting) {
+            if (rolled(held)) { msg(player, "already-rolled"); return; }
+            openRollMenu(player);
+        } else {
+            if (!rolled(held)) {
+                player.sendMessage(color("&c먼저 인챈트 테이블에서 잠재력을 개방해주세요."));
+                return;
+            }
+            openUpgradeMenu(player);
+        }
+    }
+
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+    public void onPrepareVanillaEnchant(PrepareItemEnchantEvent event) {
+        if (isImmortal(event.getItem())) event.setCancelled(true);
+    }
+
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+    public void onVanillaEnchant(EnchantItemEvent event) {
+        if (isImmortal(event.getItem())) event.setCancelled(true);
+    }
+
+    @EventHandler(priority = EventPriority.HIGHEST)
+    public void onPrepareVanillaAnvil(PrepareAnvilEvent event) {
+        Inventory top = event.getInventory();
+        if (isImmortal(top.getItem(0)) || isImmortal(top.getItem(1))) event.setResult(null);
+    }
+
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = false)
+    public void onVanillaAnvilClick(InventoryClickEvent event) {
+        if (event.getView().getTopInventory().getType() != InventoryType.ANVIL) return;
+        Inventory top = event.getView().getTopInventory();
+        if (isImmortal(top.getItem(0)) || isImmortal(top.getItem(1)) || isImmortal(event.getCurrentItem()))
+            event.setCancelled(true);
+    }
+
     @EventHandler public void onInventoryDrag(InventoryDragEvent event) {
         String title = event.getView().getTitle();
         if (isOurMenu(title)) event.setCancelled(true);
@@ -309,7 +383,11 @@ public final class ImmortalEnchantPlugin extends JavaPlugin implements Listener,
         if (success) {
             int selected = random.nextInt(options.size());
             Option old = options.get(selected);
-            double increment = getConfig().getDouble("options." + old.id() + ".upgrade-increment", 0);
+            String incrementPath = itemType(held).equals("pickaxe") && old.id().equals("mining-speed")
+                    ? "options.pickaxe-mining-speed.upgrade-increment"
+                    : "options." + old.id() + ".upgrade-increment";
+            double increment = getConfig().getDouble(incrementPath,
+                    getConfig().getDouble("options." + old.id() + ".upgrade-increment", 0));
             if (old.id().equals("attack-damage") && attempt == 4)
                 increment += getConfig().getDouble("options.attack-damage.fifth-success-bonus", 0.5);
             upgraded = new Option(old.id(), old.tier(), old.value() + increment);
@@ -380,15 +458,15 @@ public final class ImmortalEnchantPlugin extends JavaPlugin implements Listener,
         List<Option> result = new ArrayList<>();
         List<String> enabledFixed = fixed.stream().filter(id -> getConfig().getBoolean("options." + id + ".enabled", true)).toList();
         if (enabledFixed.size() != 2) throw new IllegalStateException("장비 " + type + "의 고정 긍정 옵션 2개 중 비활성화된 옵션이 있습니다.");
-        for (String id : enabledFixed) result.add(makeOption(id));
+        for (String id : enabledFixed) result.add(makeOption(id, type));
         List<String> negatives = negativePool(type);
         if (negatives.isEmpty()) throw new IllegalStateException("장비 " + type + "에 활성화된 부정 옵션이 없습니다.");
-        result.add(makeOption(negatives.get(random.nextInt(negatives.size()))));
+        result.add(makeOption(negatives.get(random.nextInt(negatives.size())), type));
         boolean positive = random.nextDouble() < getConfig().getDouble("roll.positive-chance", .5);
         List<String> pool = positive ? positivePool(type) : negatives;
         if (pool.isEmpty()) pool = positive ? negatives : positivePool(type);
         if (pool.isEmpty()) throw new IllegalStateException("장비 " + type + "에 활성화된 네 번째 옵션 후보가 없습니다.");
-        result.add(makeOption(pool.get(random.nextInt(pool.size()))));
+        result.add(makeOption(pool.get(random.nextInt(pool.size())), type));
         return result;
     }
     private List<String> positivePool(String type) {
@@ -410,7 +488,7 @@ public final class ImmortalEnchantPlugin extends JavaPlugin implements Listener,
         if (type.equals("crossbow")) candidates.add("negative-projectile-damage");
         return candidates.stream().filter(id -> getConfig().getBoolean("options." + id + ".enabled", true)).toList();
     }
-    private Option makeOption(String id) {
+    private Option makeOption(String id, String type) {
         List<String> configuredTiers = getConfig().getStringList("roll.tiers");
         List<String> tiers = configuredTiers.isEmpty() ? List.of("WEAK", "NORMAL", "STRONG") : configuredTiers;
         List<Double> weights = getConfig().getDoubleList("roll.tier-chances");
@@ -425,8 +503,12 @@ public final class ImmortalEnchantPlugin extends JavaPlugin implements Listener,
         Tier tier;
         try { tier = Tier.valueOf(tiers.get(chosen).toUpperCase(Locale.ROOT)); }
         catch (Exception ex) { tier = Tier.values()[random.nextInt(Tier.values().length)]; }
-        String path = "options." + id + "." + tier.name().toLowerCase(Locale.ROOT);
-        double value = getConfig().getDouble(path, id.equals("glow") ? 2 : 0);
+        String tierKey = tier.name().toLowerCase(Locale.ROOT);
+        String path = type.equals("pickaxe") && id.equals("mining-speed")
+                ? "options.pickaxe-mining-speed." + tierKey
+                : "options." + id + "." + tierKey;
+        double fallback = id.equals("glow") ? 2 : 0;
+        double value = getConfig().getDouble(path, getConfig().getDouble("options." + id + "." + tierKey, fallback));
         return new Option(id, tier, value);
     }
 
@@ -455,6 +537,7 @@ public final class ImmortalEnchantPlugin extends JavaPlugin implements Listener,
         if (!isImmortal(item)) return;
         String type = itemType(item);
         ItemMeta meta = item.getItemMeta();
+        hideVanillaAttributeTooltip(meta);
         removeOptionModifiers(meta);
         double damage = 0, attackSpeed = 0, mining = 0, armor = 0, toughness = 0, maxHealth = 0;
         for (Option option : options) {
@@ -498,8 +581,25 @@ public final class ImmortalEnchantPlugin extends JavaPlugin implements Listener,
     private void ensureItemStats(ItemStack item) {
         if (!isImmortal(item)) return;
         int version = item.getItemMeta().getPersistentDataContainer().getOrDefault(statsVersionKey, PersistentDataType.INTEGER, 0);
-        if (version >= 2) return;
+        if (version >= 3) return;
         String type = itemType(item);
+        if (version < 3 && type.equals("pickaxe") && rolled(item)) {
+            // 기존 곡괭이의 채굴 옵션은 기존 tier 수치와의 차이만 더해 강화 누적분을 보존합니다.
+            List<Option> legacyOptions = readOptions(item);
+            boolean changed = false;
+            for (int i = 0; i < legacyOptions.size(); i++) {
+                Option option = legacyOptions.get(i);
+                if (!option.id().equals("mining-speed")) continue;
+                String tierKey = option.tier().name().toLowerCase(Locale.ROOT);
+                double oldBase = getConfig().getDouble("options.mining-speed." + tierKey,
+                        switch (option.tier()) { case WEAK -> 1.0; case NORMAL -> 1.5; case STRONG -> 2.0; });
+                double newBase = getConfig().getDouble("options.pickaxe-mining-speed." + tierKey,
+                        switch (option.tier()) { case WEAK -> 10.0; case NORMAL -> 20.0; case STRONG -> 31.5; });
+                legacyOptions.set(i, new Option(option.id(), option.tier(), option.value() + newBase - oldBase));
+                changed = true;
+            }
+            if (changed) storeOptions(item, legacyOptions);
+        }
         applyBaseStats(item, type);
         if (rolled(item)) {
             List<Option> options = readOptions(item);
@@ -528,8 +628,8 @@ public final class ImmortalEnchantPlugin extends JavaPlugin implements Listener,
         switch (type) {
             case "sword" -> { lines.add(color("&7기본 공격력: &f12")); lines.add(color("&7기본 공격 속도: &f1.6")); }
             case "axe" -> { lines.add(color("&7기본 공격력: &f15")); lines.add(color("&7기본 공격 속도: &f1.0")); }
-            case "pickaxe" -> { lines.add(color("&7기본 공격력: &f9")); lines.add(color("&7기본 공격 속도: &f1.2")); lines.add(color("&7기본 채굴 효율: &f13.5")); }
-            case "crossbow" -> { lines.add(color("&7기본 투사체 피해: &f일반 석궁의 1.5배")); lines.add(color("&7재장전: &f빠른 장전 II")); }
+            case "pickaxe" -> { lines.add(color("&7기본 공격력: &f9")); lines.add(color("&7기본 공격 속도: &f1.2")); lines.add(color("&7기본 채굴 효율: &f13.5")); lines.add(color("&7채굴 옵션 강함: &f일반 돌 즉시 채굴")); }
+            case "crossbow" -> { lines.add(color("&7기본 투사체 피해: &f일반 석궁과 동일")); lines.add(color("&7재장전: &f빠른 장전 II")); }
             case "helmet" -> { lines.add(color("&7방어력: &f6")); lines.add(color("&7방어 강도: &f4")); lines.add(color("&7넉백 저항: &f15%")); }
             case "chestplate" -> { lines.add(color("&7방어력: &f12")); lines.add(color("&7방어 강도: &f7")); lines.add(color("&7넉백 저항: &f25%")); }
             case "leggings" -> { lines.add(color("&7방어력: &f9")); lines.add(color("&7방어 강도: &f6")); lines.add(color("&7넉백 저항: &f20%")); }
@@ -539,6 +639,7 @@ public final class ImmortalEnchantPlugin extends JavaPlugin implements Listener,
     }
 
     private void updateLore(ItemStack item, ItemMeta meta, List<Option> options) {
+        hideVanillaAttributeTooltip(meta);
         int currentStage = meta.getPersistentDataContainer().getOrDefault(stageKey, PersistentDataType.INTEGER, 0);
         List<String> lore = new ArrayList<>();
         lore.add(color("&7불멸 장비"));
@@ -566,13 +667,72 @@ public final class ImmortalEnchantPlugin extends JavaPlugin implements Listener,
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
-    public void onDamage(EntityDamageByEntityEvent event) {
-        if (event.getDamager() instanceof Projectile projectile && projectile.getPersistentDataContainer().has(projectileMultiplierKey, PersistentDataType.DOUBLE)) {
+    public void onDamage(EntityDamageEvent event) {
+        // 불멸 석궁의 투사체 피해 옵션만 적용합니다. 기본 피해 배율은 바닐라와 동일(1.0)입니다.
+        if (event instanceof EntityDamageByEntityEvent byEntity && byEntity.getDamager() instanceof Projectile projectile
+                && projectile.getPersistentDataContainer().has(projectileMultiplierKey, PersistentDataType.DOUBLE)) {
             double multiplier = projectile.getPersistentDataContainer().getOrDefault(projectileMultiplierKey, PersistentDataType.DOUBLE, 1.0);
             event.setDamage(Math.max(0, event.getDamage() * multiplier));
-            return;
         }
-        // 근접 공격력 증감은 아이템 AttributeModifier로 처리합니다. 여기서 중복 가산하지 않습니다.
+
+        // 바닐라 ARMOR 속성 상한(30) 때문에 불멸 풀세트의 설계 방어력 33이 잘리는 경우 초과분을 보정합니다.
+        if (event.getEntity() instanceof Player player) {
+            double[] totals = equippedImmortalArmorTotals(player);
+            if (totals != null) {
+                var armorAttribute = player.getAttribute(Attribute.ARMOR);
+                var toughnessAttribute = player.getAttribute(Attribute.ARMOR_TOUGHNESS);
+                if (armorAttribute != null && toughnessAttribute != null) {
+                    double actualArmor = armorAttribute.getValue();
+                    double actualToughness = toughnessAttribute.getValue();
+                    double targetArmor = Math.max(actualArmor, totals[0]);
+                    double targetToughness = Math.max(actualToughness, totals[1]);
+                    boolean armorMitigatesThisDamage = switch (event.getCause()) {
+                        case ENTITY_ATTACK, ENTITY_SWEEP_ATTACK, PROJECTILE, BLOCK_EXPLOSION, ENTITY_EXPLOSION -> true;
+                        default -> false;
+                    };
+                    if (armorMitigatesThisDamage && targetArmor > actualArmor + 1.0E-6 && event.getDamage() > 0) {
+                        double rawDamage = event.getDamage();
+                        double desiredFinal = armorAdjustedDamage(rawDamage, targetArmor, targetToughness);
+                        // 바닐라 방어력으로 같은 최종 피해가 나오도록 원 피해량을 역산합니다.
+                        double low = 0.0;
+                        double high = rawDamage;
+                        for (int i = 0; i < 64; i++) {
+                            double mid = (low + high) / 2.0;
+                            if (armorAdjustedDamage(mid, actualArmor, actualToughness) < desiredFinal) low = mid;
+                            else high = mid;
+                        }
+                        event.setDamage(high);
+                    }
+                }
+            }
+        }
+    }
+
+    private double armorAdjustedDamage(double damage, double armor, double toughness) {
+        if (damage <= 0) return 0;
+        double effectiveArmor = Math.min(20.0, Math.max(armor / 5.0, armor - damage / (2.0 + toughness / 4.0)));
+        return damage * (1.0 - effectiveArmor / 25.0);
+    }
+
+    // null이면 불멸 방어구 4부위 풀세트가 아닙니다. 배열은 [방어력, 방어 강도]입니다.
+    private double[] equippedImmortalArmorTotals(Player player) {
+        ItemStack[] armorItems = player.getInventory().getArmorContents();
+        if (armorItems.length != 4) return null;
+        double armor = 0;
+        double toughness = 0;
+        Set<String> equippedTypes = new HashSet<>();
+        for (ItemStack item : armorItems) {
+            if (!isImmortal(item) || !isArmorType(itemType(item))) return null;
+            String type = itemType(item);
+            if (!equippedTypes.add(type)) return null;
+            armor += switch (type) { case "helmet" -> 6; case "chestplate" -> 12; case "leggings" -> 9; case "boots" -> 6; default -> 0; };
+            toughness += switch (type) { case "helmet" -> 4; case "chestplate" -> 7; case "leggings" -> 6; case "boots" -> 3; default -> 0; };
+            if (rolled(item)) for (Option option : readOptions(item)) {
+                if (option.id().equals("armor")) armor += option.value();
+                else if (option.id().equals("armor-toughness")) toughness += option.value();
+            }
+        }
+        return equippedTypes.size() == 4 ? new double[]{armor, toughness} : null;
     }
 
     @EventHandler(priority = EventPriority.NORMAL, ignoreCancelled = true)
@@ -580,7 +740,7 @@ public final class ImmortalEnchantPlugin extends JavaPlugin implements Listener,
         if (!(event.getEntity() instanceof Player) || !(event.getBow() != null && isImmortal(event.getBow()))) return;
         ItemStack bow = event.getBow();
         if (!"crossbow".equals(itemType(bow))) return;
-        double multiplier = 1.5;
+        double multiplier = 1.0;
         if (rolled(bow)) for (Option option : readOptions(bow)) {
             if (option.id().equals("projectile-damage")) multiplier *= 1.0 + option.value();
             else if (option.id().equals("negative-projectile-damage")) multiplier *= Math.max(0, 1.0 + option.value());
