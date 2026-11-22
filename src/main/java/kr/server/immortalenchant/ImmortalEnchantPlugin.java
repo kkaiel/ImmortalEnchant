@@ -36,6 +36,7 @@ public final class ImmortalEnchantPlugin extends JavaPlugin implements Listener,
     private final Set<UUID> glowOwned = new HashSet<>();
     private final Map<UUID, GlowBackup> glowBackups = new HashMap<>();
     private final Map<UUID, MenuSession> menuSessions = new HashMap<>();
+    private boolean armorDebugEnabled = false;
 
     private enum Tier { WEAK, NORMAL, STRONG }
     private record Option(String id, Tier tier, double value) {}
@@ -84,6 +85,23 @@ public final class ImmortalEnchantPlugin extends JavaPlugin implements Listener,
             sender.sendMessage(color("&b/immortal enchant &7- 최초 옵션 생성 GUI"));
             sender.sendMessage(color("&b/immortal anvil &7- 강화 GUI"));
             sender.sendMessage(color("&b/immortal stats &7- 현재 적용된 능력치 확인"));
+            sender.sendMessage(color("&b/immortal debug <on|off|status> &7- 초과 방어력 디버그"));
+            return true;
+        }
+        if (args[0].equalsIgnoreCase("debug")) {
+            if (!sender.hasPermission("immortalenchant.admin")) { msg(sender, "no-permission"); return true; }
+            if (args.length < 2 || args[1].equalsIgnoreCase("status")) {
+                sender.sendMessage(color("&b초과 방어력 디버그: " + (armorDebugEnabled ? "&a켜짐" : "&c꺼짐")));
+                return true;
+            }
+            if (args[1].equalsIgnoreCase("on")) armorDebugEnabled = true;
+            else if (args[1].equalsIgnoreCase("off")) armorDebugEnabled = false;
+            else {
+                sender.sendMessage(color("&c사용법: /immortal debug <on|off|status>"));
+                return true;
+            }
+            sender.sendMessage(color("&a초과 방어력 디버그를 " + (armorDebugEnabled ? "켜짐" : "꺼짐") + " 상태로 변경했습니다."));
+            getLogger().info("Armor debug " + (armorDebugEnabled ? "enabled" : "disabled") + " by " + sender.getName());
             return true;
         }
         if (args[0].equalsIgnoreCase("reload")) {
@@ -681,42 +699,56 @@ public final class ImmortalEnchantPlugin extends JavaPlugin implements Listener,
             event.setDamage(Math.max(0, event.getDamage() * multiplier));
         }
 
-        // 바닐라 ARMOR 속성 상한(30) 때문에 불멸 풀세트의 설계 방어력 33이 잘리는 경우 초과분을 보정합니다.
-        if (event.getEntity() instanceof Player player) {
-            double[] totals = equippedImmortalArmorTotals(player);
-            if (totals != null) {
-                var armorAttribute = player.getAttribute(Attribute.ARMOR);
-                var toughnessAttribute = player.getAttribute(Attribute.ARMOR_TOUGHNESS);
-                if (armorAttribute != null && toughnessAttribute != null) {
-                    double actualArmor = armorAttribute.getValue();
-                    double actualToughness = toughnessAttribute.getValue();
-                    double targetArmor = Math.max(actualArmor, totals[0]);
-                    double targetToughness = Math.max(actualToughness, totals[1]);
-                    boolean armorMitigatesThisDamage = switch (event.getCause()) {
-                        case ENTITY_ATTACK, ENTITY_SWEEP_ATTACK, PROJECTILE, BLOCK_EXPLOSION, ENTITY_EXPLOSION -> true;
-                        default -> false;
-                    };
-                    double excessArmor = Math.max(0.0, totals[0] - 30.0);
-                    double excessArmorReduction = excessArmor * 0.01;
-                    if (armorMitigatesThisDamage
-                            && (targetArmor > actualArmor + 1.0E-6 || excessArmorReduction > 0)
-                            && event.getDamage() > 0) {
-                        double rawDamage = event.getDamage();
-                        double desiredFinal = armorAdjustedDamage(rawDamage, targetArmor, targetToughness);
-                        // 방어력 30 초과분은 1당 1% 추가 감소시킵니다.
-                        desiredFinal *= Math.max(0.0, 1.0 - excessArmorReduction);
-                        // 바닐라 방어력으로 같은 최종 피해가 나오도록 원 피해량을 역산합니다.
-                        double low = 0.0;
-                        double high = rawDamage;
-                        for (int i = 0; i < 64; i++) {
-                            double mid = (low + high) / 2.0;
-                            if (armorAdjustedDamage(mid, actualArmor, actualToughness) < desiredFinal) low = mid;
-                            else high = mid;
-                        }
-                        event.setDamage(high);
-                    }
-                }
+        if (!(event.getEntity() instanceof Player player)) return;
+        double[] totals = equippedImmortalArmorTotals(player);
+        if (totals == null) return;
+
+        var armorAttribute = player.getAttribute(Attribute.ARMOR);
+        var toughnessAttribute = player.getAttribute(Attribute.ARMOR_TOUGHNESS);
+        if (armorAttribute == null || toughnessAttribute == null) return;
+
+        double actualArmor = armorAttribute.getValue();
+        double actualToughness = toughnessAttribute.getValue();
+        double targetArmor = Math.max(actualArmor, totals[0]);
+        double targetToughness = Math.max(actualToughness, totals[1]);
+        double rawDamage = event.getDamage();
+        double excessArmor = Math.max(0.0, totals[0] - 30.0);
+        double excessArmorReduction = excessArmor * 0.01;
+        boolean armorMitigatesThisDamage = switch (event.getCause()) {
+            case ENTITY_ATTACK, ENTITY_SWEEP_ATTACK, PROJECTILE, BLOCK_EXPLOSION, ENTITY_EXPLOSION -> true;
+            default -> false;
+        };
+
+        boolean applied = armorMitigatesThisDamage
+                && (targetArmor > actualArmor + 1.0E-6 || excessArmorReduction > 0)
+                && rawDamage > 0;
+        double vanillaEstimated = armorAdjustedDamage(rawDamage, actualArmor, actualToughness);
+        double targetEstimated = armorAdjustedDamage(rawDamage, targetArmor, targetToughness);
+        double finalEstimated = targetEstimated * Math.max(0.0, 1.0 - excessArmorReduction);
+
+        if (applied) {
+            // 방어력 30 초과분은 1당 1% 추가 감소시킵니다.
+            // 목표 방어력으로 계산한 최종 피해가 바닐라 방어력 계산 후 나오도록 원 피해량을 역산합니다.
+            double low = 0.0;
+            double high = rawDamage;
+            for (int i = 0; i < 64; i++) {
+                double mid = (low + high) / 2.0;
+                if (armorAdjustedDamage(mid, actualArmor, actualToughness) < finalEstimated) low = mid;
+                else high = mid;
             }
+            event.setDamage(high);
+        }
+
+        if (armorDebugEnabled) {
+            String status = applied ? "적용" : (armorMitigatesThisDamage ? "미적용(보정 불필요 또는 피해 0)" : "미적용(대상 피해 유형 아님)");
+            String message = String.format(Locale.US,
+                    "[ArmorDebug] player=%s cause=%s status=%s | raw=%.3f | armor(total/attribute/used)=%.2f/%.2f/%.2f | toughness(total/attribute/used)=%.2f/%.2f/%.2f | excess=%.2f | extraReduction=%.2f%% | vanillaEstimatedFinal=%.3f | immortalEstimatedFinal=%.3f | eventDamageAfter=%.3f",
+                    player.getName(), event.getCause(), status, rawDamage,
+                    totals[0], actualArmor, targetArmor,
+                    totals[1], actualToughness, targetToughness,
+                    excessArmor, excessArmorReduction * 100.0,
+                    vanillaEstimated, finalEstimated, event.getDamage());
+            getLogger().info(message);
         }
     }
 
