@@ -117,12 +117,18 @@ public final class ImmortalEnchantPlugin extends JavaPlugin implements Listener,
         showAttribute(player, Attribute.ATTACK_DAMAGE, "공격력");
         showAttribute(player, Attribute.ATTACK_SPEED, "공격 속도");
         showAttribute(player, Attribute.MINING_EFFICIENCY, "채굴 효율 보정");
-        showAttribute(player, Attribute.ARMOR, "방어력(바닐라 적용값)");
-        showAttribute(player, Attribute.ARMOR_TOUGHNESS, "방어 강도");
         double[] armorTotals = equippedImmortalArmorTotals(player);
         if (armorTotals != null) {
+            double excessArmor = Math.max(0.0, armorTotals[0] - 30.0);
+            double bonusReduction = excessArmor * 0.01;
             player.sendMessage(color("&b불멸 방어구 합산 방어력: &f" + String.format(Locale.US, "%.2f", armorTotals[0])));
             player.sendMessage(color("&b불멸 방어구 합산 방어 강도: &f" + String.format(Locale.US, "%.2f", armorTotals[1])));
+            player.sendMessage(color("&7바닐라 방어력 상한: &f30.00"));
+            player.sendMessage(color("&7초과 방어력: &f" + String.format(Locale.US, "%.2f", excessArmor)));
+            player.sendMessage(color("&a초과 방어력 추가 피해 감소: &f" + String.format(Locale.US, "%.2f%%", bonusReduction * 100.0)));
+            player.sendMessage(color("&8초과 방어력 1당 피해 1% 추가 감소"));
+        } else {
+            player.sendMessage(color("&7불멸 방어구 4부위 착용 시 방어력 보정 정보가 표시됩니다."));
         }
         showAttribute(player, Attribute.KNOCKBACK_RESISTANCE, "넉백 저항");
         showAttribute(player, Attribute.MAX_HEALTH, "최대 체력");
@@ -690,9 +696,15 @@ public final class ImmortalEnchantPlugin extends JavaPlugin implements Listener,
                         case ENTITY_ATTACK, ENTITY_SWEEP_ATTACK, PROJECTILE, BLOCK_EXPLOSION, ENTITY_EXPLOSION -> true;
                         default -> false;
                     };
-                    if (armorMitigatesThisDamage && targetArmor > actualArmor + 1.0E-6 && event.getDamage() > 0) {
+                    double excessArmor = Math.max(0.0, totals[0] - 30.0);
+                    double excessArmorReduction = excessArmor * 0.01;
+                    if (armorMitigatesThisDamage
+                            && (targetArmor > actualArmor + 1.0E-6 || excessArmorReduction > 0)
+                            && event.getDamage() > 0) {
                         double rawDamage = event.getDamage();
                         double desiredFinal = armorAdjustedDamage(rawDamage, targetArmor, targetToughness);
+                        // 방어력 30 초과분은 1당 1% 추가 감소시킵니다.
+                        desiredFinal *= Math.max(0.0, 1.0 - excessArmorReduction);
                         // 바닐라 방어력으로 같은 최종 피해가 나오도록 원 피해량을 역산합니다.
                         double low = 0.0;
                         double high = rawDamage;

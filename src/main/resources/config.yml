@@ -56,7 +56,7 @@ options:
     weak: 10.0
     normal: 20.0
     strong: 31.5
-    upgrade-increment: 0.5
+    upgrade-increment: 10.0
   projectile-damage:
     enabled: true
     weak: 0.10
