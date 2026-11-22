@@ -41,3 +41,7 @@
 5. `immortalEstimatedFinal`이 `vanillaEstimatedFinal`보다 낮은지 확인합니다.
 6. 낙하/독 피해처럼 지원하지 않는 피해 유형은 `미적용(대상 피해 유형 아님)`으로 기록되는 것이 정상입니다.
 7. 테스트 후 `/immortal debug off`로 끕니다.
+
+
+## 초과 방어력 추가 피해 감소 설정
+`config.yml`의 `armor-mitigation.excess-per-point` 값으로 조정합니다. 기본 테스트 값은 `0.025`이며, 초과 방어력 1당 2.5% 추가 피해 감소입니다. 예를 들어 `0.013`은 1.3%, `0.01`은 1%입니다. 변경 후 서버를 재시작해야 적용됩니다.

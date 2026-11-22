@@ -1,6 +1,11 @@
 # 불멸 커스텀 인챈트 설정
 # 모든 수치는 서버 테스트 후 이 파일에서 조정할 수 있습니다.
 
+# 초과 방어력 추가 피해 감소 설정
+# 초과 방어력 1당 0.025 = 2.5% 추가 피해 감소
+armor-mitigation:
+  excess-per-point: 0.025
+
 initial-roll:
   experience-levels: 1
   required-blocks:

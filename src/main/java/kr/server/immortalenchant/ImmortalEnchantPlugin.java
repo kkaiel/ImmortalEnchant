@@ -138,13 +138,13 @@ public final class ImmortalEnchantPlugin extends JavaPlugin implements Listener,
         double[] armorTotals = equippedImmortalArmorTotals(player);
         if (armorTotals != null) {
             double excessArmor = Math.max(0.0, armorTotals[0] - 30.0);
-            double bonusReduction = excessArmor * 0.01;
+            double bonusReduction = excessArmor * getConfig().getDouble("armor-mitigation.excess-per-point", 0.025);
             player.sendMessage(color("&b불멸 방어구 합산 방어력: &f" + String.format(Locale.US, "%.2f", armorTotals[0])));
             player.sendMessage(color("&b불멸 방어구 합산 방어 강도: &f" + String.format(Locale.US, "%.2f", armorTotals[1])));
             player.sendMessage(color("&7바닐라 방어력 상한: &f30.00"));
             player.sendMessage(color("&7초과 방어력: &f" + String.format(Locale.US, "%.2f", excessArmor)));
             player.sendMessage(color("&a초과 방어력 추가 피해 감소: &f" + String.format(Locale.US, "%.2f%%", bonusReduction * 100.0)));
-            player.sendMessage(color("&8초과 방어력 1당 피해 1% 추가 감소"));
+            player.sendMessage(color("&8초과 방어력 1당 피해 " + String.format(Locale.US, "%.2f%%", getConfig().getDouble("armor-mitigation.excess-per-point", 0.025) * 100.0) + " 추가 감소"));
         } else {
             player.sendMessage(color("&7불멸 방어구 4부위 착용 시 방어력 보정 정보가 표시됩니다."));
         }
@@ -713,7 +713,7 @@ public final class ImmortalEnchantPlugin extends JavaPlugin implements Listener,
         double targetToughness = Math.max(actualToughness, totals[1]);
         double rawDamage = event.getDamage();
         double excessArmor = Math.max(0.0, totals[0] - 30.0);
-        double excessArmorReduction = excessArmor * 0.01;
+        double excessArmorReduction = excessArmor * getConfig().getDouble("armor-mitigation.excess-per-point", 0.025);
         boolean armorMitigatesThisDamage = switch (event.getCause()) {
             case ENTITY_ATTACK, ENTITY_SWEEP_ATTACK, PROJECTILE, BLOCK_EXPLOSION, ENTITY_EXPLOSION -> true;
             default -> false;
@@ -727,7 +727,7 @@ public final class ImmortalEnchantPlugin extends JavaPlugin implements Listener,
         double finalEstimated = targetEstimated * Math.max(0.0, 1.0 - excessArmorReduction);
 
         if (applied) {
-            // 방어력 30 초과분은 1당 1% 추가 감소시킵니다.
+            // 방어력 30 초과분은 config.yml의 armor-mitigation.excess-per-point 비율로 추가 감소시킵니다.
             // 목표 방어력으로 계산한 최종 피해가 바닐라 방어력 계산 후 나오도록 원 피해량을 역산합니다.
             double low = 0.0;
             double high = rawDamage;
