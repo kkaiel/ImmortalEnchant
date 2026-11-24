@@ -2,11 +2,11 @@
 # 모든 수치는 서버 테스트 후 이 파일에서 조정할 수 있습니다.
 
 # 초과 방어력 추가 피해 감소 설정
-# 초과 방어력 1당 0.02 = 2% 추가 피해 감소
-# 초과 방어력에 의한 추가 피해 감소는 최대 0.80 = 80%로 제한됩니다.
+# 초과 방어력 1당 0.018 = 1.8% 추가 피해 감소
+# 초과 방어력에 의한 추가 피해 감소는 최대 0.60 = 60%로 제한됩니다.
 armor-mitigation:
-  excess-per-point: 0.02
-  max-reduction: 0.80
+  excess-per-point: 0.018
+  max-reduction: 0.60
 
 initial-roll:
   experience-levels: 1
@@ -135,3 +135,13 @@ messages:
   upgrade-success: '&a강화에 성공했습니다!'
   upgrade-fail: '&c강화에 실패했습니다. 옵션 수치는 유지됩니다.'
   max-attempts: '&c더 이상 강화할 수 없습니다. 최대 강화 단계입니다.'
+
+  # /immortal stats 방어력 안내 문구
+  # {value} 자리에 현재 서버 설정 또는 플레이어의 능력치가 표시됩니다.
+  stats-armor-total: '&b불멸 방어구 합산 방어력: &f{value}'
+  stats-armor-toughness: '&b불멸 방어구 합산 방어 강도: &f{value}'
+  stats-armor-vanilla-cap: '&7바닐라 방어력 상한: &f{value}'
+  stats-armor-excess: '&7초과 방어력: &f{value}'
+  stats-armor-bonus: '&a초과 방어력 추가 피해 감소: &f{value}'
+  stats-armor-per-point: '&8초과 방어력 1당 추가 피해 감소: {value}'
+  stats-armor-cap: '&8초과 방어력 추가 피해 감소 상한: {value} (바닐라 감소와 별도 적용)'

@@ -373,12 +373,15 @@ public final class ImmortalEnchantPlugin extends JavaPlugin implements Listener,
         if (armorTotals != null) {
             double excessArmor = Math.max(0.0, armorTotals[0] - 30.0);
             double bonusReduction = calculateExcessArmorReduction(excessArmor);
-            player.sendMessage(color("&b불멸 방어구 합산 방어력: &f" + String.format(Locale.US, "%.2f", armorTotals[0])));
-            player.sendMessage(color("&b불멸 방어구 합산 방어 강도: &f" + String.format(Locale.US, "%.2f", armorTotals[1])));
-            player.sendMessage(color("&7바닐라 방어력 상한: &f30.00"));
-            player.sendMessage(color("&7초과 방어력: &f" + String.format(Locale.US, "%.2f", excessArmor)));
-            player.sendMessage(color("&a초과 방어력 추가 피해 감소: &f" + String.format(Locale.US, "%.2f%%", bonusReduction * 100.0)));
-            player.sendMessage(color("&8초과 방어력 1당 피해 " + String.format(Locale.US, "%.2f%%", getConfig().getDouble("armor-mitigation.excess-per-point", 0.02) * 100.0) + " 추가 감소"));
+            double perPointPercent = getConfig().getDouble("armor-mitigation.excess-per-point", 0.018) * 100.0;
+            double capPercent = getConfig().getDouble("armor-mitigation.max-reduction", 0.60) * 100.0;
+            sendStatsMessage(player, "stats-armor-total", "{value}", String.format(Locale.US, "%.2f", armorTotals[0]));
+            sendStatsMessage(player, "stats-armor-toughness", "{value}", String.format(Locale.US, "%.2f", armorTotals[1]));
+            sendStatsMessage(player, "stats-armor-vanilla-cap", "{value}", "30.00");
+            sendStatsMessage(player, "stats-armor-excess", "{value}", String.format(Locale.US, "%.2f", excessArmor));
+            sendStatsMessage(player, "stats-armor-bonus", "{value}", String.format(Locale.US, "%.2f%%", bonusReduction * 100.0));
+            sendStatsMessage(player, "stats-armor-per-point", "{value}", String.format(Locale.US, "%.2f%%", perPointPercent));
+            sendStatsMessage(player, "stats-armor-cap", "{value}", String.format(Locale.US, "%.2f%%", capPercent));
         } else {
             player.sendMessage(color("&7불멸 방어구 4부위 착용 시 방어력 보정 정보가 표시됩니다."));
         }
@@ -394,6 +397,12 @@ public final class ImmortalEnchantPlugin extends JavaPlugin implements Listener,
             player.sendMessage(color("&b석궁 빠른 장전: &f" + hand.getEnchantmentLevel(Enchantment.QUICK_CHARGE) + "레벨"));
         player.sendMessage(color("&8&m--------------------------------------------------"));
     }
+    private void sendStatsMessage(Player player, String key, String placeholder, String value) {
+        String message = getConfig().getString("messages." + key, "");
+        if (message == null || message.isBlank()) return;
+        player.sendMessage(color(message.replace(placeholder, value)));
+    }
+
     private void showAttribute(Player player, Attribute attribute, String label) {
         var instance = player.getAttribute(attribute);
         if (instance != null) player.sendMessage(color("&7" + label + ": &f" + String.format(Locale.US, "%.2f", instance.getValue())));
